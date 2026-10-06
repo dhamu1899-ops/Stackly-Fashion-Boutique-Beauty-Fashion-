@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Mini "Region - Map" thumbnail for the satellite-imagery button (256x256, clipped to a 38x38 window at 28,149) -->
+  <rect width="256" height="256" fill="#F2EFE6"/>
+  <!-- parks / green areas -->
+  <rect x="0" y="96" width="86" height="76" fill="#CDE6B8"/>
+  <rect x="150" y="0" width="106" height="70" fill="#CDE6B8"/>
+  <circle cx="46" cy="168" r="26" fill="#C5E1A5"/>
+  <rect x="176" y="188" width="70" height="54" fill="#CDE6B8"/>
+  <!-- water / river running through the lower-left window area -->
+  <path d="M-10 214 C40 200 66 234 108 220 C150 206 180 244 266 226 L266 256 L-10 256 Z" fill="#AAD3F7"/>
+  <!-- road grid (white) -->
+  <g stroke="#FFFFFF" fill="none">
+    <path d="M0 64 H256" stroke-width="6"/>
+    <path d="M0 144 H256" stroke-width="7"/>
+    <path d="M0 196 H256" stroke-width="5"/>
+    <path d="M64 0 V256" stroke-width="6"/>
+    <path d="M136 0 V256" stroke-width="7"/>
+    <path d="M208 0 V256" stroke-width="5"/>
+  </g>
+  <!-- main highway (yellow) through the clipped window (28..66 x 149..187) -->
+  <path d="M-10 170 C40 158 78 186 128 174 C182 161 214 188 266 176" stroke="#F6C453" stroke-width="9" fill="none"/>
+  <!-- building blocks -->
+  <g fill="#E4DFD2">
+    <rect x="76" y="76" width="46" height="54"/>
+    <rect x="148" y="154" width="50" height="32"/>
+    <rect x="18" y="10" width="38" height="44"/>
+    <rect x="220" y="84" width="30" height="48"/>
+  </g>
+</svg>
