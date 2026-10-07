@@ -1,8 +1,10 @@
 /* =============================================================================
    STACKLY — product details page behaviour
-   - dynamic product: ?p=<img key>&n=<name>&pr=<price> renders THAT product
-     (title, price pair, main photo) in the fixed design — no params means
-     the static design product, which is what the pixel audits measure
+   - dynamic product: ?p=<img key> selects WHICH product is shown; its name
+     and price are read from js/catalog.js (the trusted list), never from
+     ?n= / ?pr= — a hand-edited price in the URL can not reach this page or
+     the cart (QA bug FB-005). No params means the static design product,
+     which is what the pixel audits measure
    - gallery: clicking a thumbnail swaps it with the main photo
    - quantity stepper (+ / -, minimum 1)
    - size selector (moves the brown active state; xxl is out of stock)
@@ -89,14 +91,27 @@
     /* ---------- gallery main slot ---------- */
     var main = document.querySelector("[data-img='pd-1']");
 
-    /* ---------- dynamic product (identity travels in the URL) ---------- */
-    var qn = "", qp = "", qi = "";
+    /* ---------- dynamic product (identity travels in the URL) ----------
+       QA FB-005: ?p only says WHICH product to open. The name and the price
+       are taken from js/catalog.js, never from ?n / ?pr, so a price typed
+       into the address bar can not change what is shown (or what the cart
+       stores, because the cart stores the displayed price). A key that is
+       not in the catalog falls back to the design's own product. */
+    var qi = "";
+    try { qi = (new URLSearchParams(location.search).get("p") || "").trim(); } catch (e) {}
+    var item = qi ? (window.STACKLY_CATALOG || {})[qi] : null;
+    if (!item) qi = "";
+    var qn = item ? item.name : "";
+    var qp = item ? item.price : "";
+
+    /* leave a canonical address behind — the edited price disappears from it */
     try {
-      var params = new URLSearchParams(location.search);
-      qn = (params.get("n") || "").trim();
-      qp = (params.get("pr") || "").trim();
-      qi = (params.get("p") || "").trim();
+      if (location.search) {
+        history.replaceState(null, "", location.pathname +
+          (qi ? "?p=" + encodeURIComponent(qi) : "") + location.hash);
+      }
     } catch (e) {}
+
     var titleEl = document.querySelector(".section-title");
     var newP = document.querySelector(".pd-price-new");
     var oldP = document.querySelector(".pd-price-old");
@@ -114,8 +129,9 @@
     }
 
     /* ---------- dynamic category / rating / description / gallery ----------
-       Only when a product arrives in the URL (?p/?n/?pr). Without params every
-       element keeps its exact design text — that is what the pixel audits read. */
+       Only when a product was resolved from the catalog. Without one every
+       element keeps its exact design text — that is what the pixel audits
+       read. */
     var cat = qn ? pdCategory(qn) : "man t-Shirt";
     if (qn) {
       var catEl = document.querySelector(".pd-cat");

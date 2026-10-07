@@ -1,4 +1,4 @@
-/* =============================================================================
+﻿/* =============================================================================
    STACKLY — page behaviour (shared, loaded on every page)
    - fills every image box from images.js (single source of truth)
    - scales the fixed 1440 design canvas down on narrower screens
@@ -7,7 +7,8 @@
      toast notifications, in-field overlay inputs, dropdown helpers
    Page-specific behaviour lives in <page>.js (loaded after this file).
    Exposes: window.STACKLY = { toast, overlayInput, dropdown, inr/idr, go, refit,
-   cartItems, saveCart, cartCount, addToCart, clearCart, productData, goProduct }
+   cartItems, saveCart, cartCount, addToCart, clearCart, productData, goProduct,
+   signUp, signIn, signOut, session }
 ============================================================================= */
 (function () {
   "use strict";
@@ -444,12 +445,108 @@ function resolveSrc(src) {
        "&n=" + encodeURIComponent(d.name) + "&pr=" + encodeURIComponent(d.price));
   }
 
+  /* ---------- accounts + session (QA FB-001 / FB-002 / FB-004) ----------
+     This is a static site, so there is no server to talk to. The registered
+     accounts therefore live in localStorage — the point is that Login now
+     VERIFIES the credentials against the account that was created, instead
+     of only checking the password format, and that the role used after the
+     login comes from that verified account, never from the login / sign-up
+     role boxes or from the URL.
+
+     - signUp()  always creates a CUSTOMER account (public sign-up can not
+                 mint an administrator — FB-004)
+     - signIn()  looks the email up, compares the stored digest and only then
+                 opens the session with the account's own role (FB-001 /
+                 FB-002)
+     - session() is what the dashboard reads its role from (FB-003)
+
+     Passwords are stored as a digest, never in clear text. When this project
+     gets a backend these four calls are the ones to replace with API calls. */
+  var ACC_KEY = "stacklyAccounts";
+  function accounts() {
+    try {
+      var raw = localStorage.getItem(ACC_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      return Object.prototype.toString.call(list) === "[object Array]" ? list : [];
+    } catch (e) { return []; }
+  }
+  function saveAccounts(list) {
+    try { localStorage.setItem(ACC_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+  /* FNV-1a — keeps the readable password out of browser storage */
+  function digest(s) {
+    var h = 0x811c9dc5;
+    s = "stackly::" + s;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return ("00000000" + h.toString(16)).slice(-8);
+  }
+  function normEmail(e) { return String(e || "").trim().toLowerCase(); }
+  function findAccount(list, email) {
+    for (var i = 0; i < list.length; i++) {
+      if (normEmail(list[i].email) === email) return list[i];
+    }
+    return null;
+  }
+  function signUp(name, email, pw) {
+    email = normEmail(email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      return { ok: false, msg: "Please enter a valid email address" };
+    }
+    var list = accounts();
+    if (findAccount(list, email)) {
+      return { ok: false, msg: "An account already exists for this email — please sign in" };
+    }
+    list.push({
+      name: String(name || "").trim(), email: email, pw: digest(String(pw || "")),
+      role: "user", created: Date.now()
+    });
+    saveAccounts(list);
+    return { ok: true, msg: "Account created! Please log in." };
+  }
+  function signIn(email, pw) {
+    email = normEmail(email);
+    var acc = findAccount(accounts(), email);
+    if (!acc) {
+      return { ok: false, msg: "No account is registered with this email — please register first" };
+    }
+    if (digest(String(pw || "")) !== acc.pw) {
+      return { ok: false, msg: "Incorrect password for this account" };
+    }
+    /* the role comes from the verified account only — the role boxes on the
+       login page can not promote anybody (FB-002) */
+    var role = acc.role === "admin" ? "admin" : "user";
+    try {
+      localStorage.setItem("stacklyUser", acc.email);
+      localStorage.setItem("stacklyRole", role);
+    } catch (e) {}
+    return { ok: true, role: role, name: acc.name || acc.email };
+  }
+  function signOut() {
+    try {
+      localStorage.removeItem("stacklyUser");
+      localStorage.removeItem("stacklyRole");
+    } catch (e) {}
+  }
+  function session() {
+    var email = "", role = "";
+    try {
+      email = localStorage.getItem("stacklyUser") || "";
+      role = localStorage.getItem("stacklyRole") || "";
+    } catch (e) {}
+    if (!email) return null;
+    return { email: email, role: role === "admin" ? "admin" : "user" };
+  }
+
   window.STACKLY = {
     toast: toast, overlayInput: overlayInput, dropdown: dropdown,
     inr: inr, idr: inr, go: go, refit: refit,
     cartItems: cartItems, saveCart: saveCart,
     cartCount: cartCount, addToCart: addToCart, clearCart: clearCartItems,
-    productData: productData, goProduct: goProduct
+    productData: productData, goProduct: goProduct,
+    signUp: signUp, signIn: signIn, signOut: signOut, session: session
   };
 
   /* ================================================================
@@ -481,6 +578,18 @@ function resolveSrc(src) {
     var stage = document.querySelector(".stage");
     var canvas = document.querySelector(".canvas");
     if (!stage || !canvas) return;
+
+    /* the pinned header divides its pin offset by this scale and caches it for
+       scroll performance — every refit invalidates that cache, so flag it and
+       tell the header to re-measure as soon as this frame's writes are in */
+    window.__slyScaleDirty = true;
+    if (!window.__slyRefitQueued) {
+      window.__slyRefitQueued = true;
+      requestAnimationFrame(function () {
+        window.__slyRefitQueued = false;
+        try { window.dispatchEvent(new Event("stackly:refit")); } catch (e) {}
+      });
+    }
 
     /* viewport width WITHOUT the classic scrollbar — exactly what the
        (max-width:991px) media queries in responsive.css evaluate against,
@@ -558,15 +667,24 @@ function resolveSrc(src) {
         have the header; silent on login/sign/404 which don't)
      ================================================================ */
   function initHeader() {
-    /* signed-in state (saved by the login page) — navbar chip + routing */
+    /* signed-in state (saved by the login page) — navbar chip + routing.
+       The dashboard derives its role from this session (see STACKLY.session),
+       so the URL never carries a role any more (QA FB-003). */
     var user = "";
     try { user = localStorage.getItem("stacklyUser") || ""; } catch (e) {}
-    var role = "user";
-    try { role = localStorage.getItem("stacklyRole") || "user"; } catch (e) {}
-    var accountDest = user ? "dashboard.html?role=" + role : "login.html";
+    var accountDest = user ? "dashboard.html" : "login.html";
 
-    document.querySelectorAll('button.nav-icon[aria-label="Account"]').forEach(function (b) {
-      b.addEventListener("click", function () { go(accountDest); });
+    /* Account icon — the markup differs per page: most pages ship it as a
+       <button>, about/cart ship it as a plain <a href="login.html">. Both must
+       follow the session, otherwise a signed-in shopper clicking the icon on
+       those pages is bounced back to the login form: signed in -> dashboard,
+       signed out (after a successful logout) -> login. */
+    document.querySelectorAll('.nav-icon[aria-label="Account"]').forEach(function (b) {
+      if (b.tagName === "A") b.setAttribute("href", accountDest);
+      b.addEventListener("click", function (e) {
+        if (b.tagName === "A") e.preventDefault();
+        go(accountDest);
+      });
     });
     document.querySelectorAll('button.nav-icon[aria-label="Cart"]').forEach(function (b) {
       b.addEventListener("click", function () { go("cart.html"); });
@@ -663,8 +781,8 @@ function resolveSrc(src) {
        (no page in this site routes to 404.html from a link click) */
     var FOOTER_DEST = {
       "your cart": "cart.html",
-      "your orders": "dashboard.html?role=user",
-      "wishlist": "dashboard.html?role=user#wishlist",
+      "your orders": "dashboard.html",
+      "wishlist": "dashboard.html#wishlist",
       "shipping details": "contact.html",
       "blogs": "blog.html"
     };
@@ -693,7 +811,16 @@ function resolveSrc(src) {
     var canvas = document.querySelector(".canvas");
     if (!canvas || !("IntersectionObserver" in window)) return;
 
+    /* The pinned header rows and the injected backdrop are excluded: their
+       inline `translate` is what keeps them fixed, so a reveal animation
+       (opacity + translateY) running on top of it makes the header slide and
+       blink — the "header shakes while scrolling" report. They are chrome, not
+       page content, so they are simply present from the first paint. */
+    var HEAD = /^(logo|nav|search|nav-icon|burger|sh-head|bl-tools|pd-headrow|nav-user)$/;
     var kids = [].slice.call(canvas.children).filter(function (el) {
+      if (el.classList && el.classList.contains("stackly-header-bg")) return false;
+      var cls = el.getAttribute("class") || "";
+      if (cls.split(/\s+/).some(function (c) { return HEAD.test(c); })) return false;
       return el.offsetParent !== null;
     });
     if (!kids.length) return;
@@ -852,181 +979,224 @@ function resolveSrc(src) {
      ================================================================ */
   
   /* ================================================================
-     Sticky Nav Header on Scroll
+     PINNED TOP HEADER
+     ----------------------------------------------------------------
+     The page's OWN header stays at the top while you scroll. An
+     earlier version injected a duplicate ".stackly-sticky-header"
+     bar, so two headers competed for the same strip of screen — that
+     bar is gone and the real header is held in place instead.
+     ----------------------------------------------------------------
+     ".canvas" gets "transform: scale(s)" between 992px and 1439px,
+     and a transformed ancestor breaks "position: fixed" (the fixed
+     box then resolves against the canvas rather than the viewport
+     and lands hundreds of pixels off-screen). Translating the header
+     by scrollY / s cancels the scroll instead: a child's translate
+     is applied in the canvas' local coordinates, so the visual shift
+     is (scrollY / s) * s = scrollY — exactly the scroll distance.
      ================================================================ */
   function initStickyHeader() {
-    var isAuthOr404 = /login|sign|404|dashboard/.test(location.pathname);
-    if (isAuthOr404) return;
+    if (/login|sign|404|dashboard/.test(location.pathname)) return;
+    var canvas = document.querySelector(".canvas");
+    if (!canvas) return;
 
-    var inHtml = location.pathname.indexOf("/html/") >= 0;
-    var homeHref = inHtml ? "index.html" : "index.html";
-    var aboutHref = inHtml ? "about.html" : "html/about.html";
-    var shopHref = inHtml ? "shop.html" : "html/shop.html";
-    var prodHref = inHtml ? "product-details.html" : "html/product-details.html";
-    var blogHref = inHtml ? "blog.html" : "html/blog.html";
-    var contactHref = inHtml ? "contact.html" : "html/contact.html";
-    var cartHref = inHtml ? "cart.html" : "html/cart.html";
+    /* everything that makes up the page header. Only the OUTERMOST match
+       is moved: an icon inside .sh-head / .bl-tools / .pd-headrow travels
+       with its wrapper, and translating it as well would drag it twice as
+       far down the page.
+       .banner (the "Discount 20% ..." strip) is deliberately NOT in here —
+       it is page content, not the nav, so it scrolls away with the page. */
+    var SELECTOR = ".logo, .nav, .search, .nav-icon, .burger, " +
+                   ".sh-head, .bl-tools, .pd-headrow, .nav-user";
 
-    var user = "";
-    try { user = localStorage.getItem("stacklyUser") || ""; } catch (e) {}
-    var role = "user";
-    try { role = localStorage.getItem("stacklyRole") || "user"; } catch (e) {}
-    var accountDest = user ? (inHtml ? "dashboard.html?role=" + role : "html/dashboard.html?role=" + role) : (inHtml ? "login.html" : "html/login.html");
+    /* Sticky header that COMPACTS while scrolling: over the first CONDENSE px
+       of scroll the pinned rows slide up to the top of the bar and scale down
+       to SHRINK, and the backdrop shrinks from headH0 (the design height) to
+       headH1 (the compacted height, measured once). At scroll 0 everything is
+       restored to its untouched design geometry. */
+    var CONDENSE = 160, SHRINK = 0.88, PAD = 6;
+    var nodes = [], bg = null, headerH = 120, raised = false;
+    var headH0 = 120, headH1 = 120, shiftFull = 0, scale = 1;
 
-    // Add sticky header styles
-    var st = document.createElement("style");
-    st.textContent = [
-      "@layer stackly{",
-      ".stackly-sticky-header{",
-      "  position:fixed;top:0;left:0;width:100%;z-index:9999;",
-      "  background:rgba(255,255,255,0.95);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);",
-      "  border-bottom:1px solid rgba(139,69,19,0.12);box-shadow:0 6px 24px rgba(40,20,10,0.08);",
-      "  transform:translateY(-110%);transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .3s ease;",
-      "  opacity:0;pointer-events:none;padding:10px 24px;box-sizing:border-box;",
-      "}",
-      ".stackly-sticky-header.is-visible{ transform:translateY(0);opacity:1;pointer-events:auto; }",
-      ".ssh-inner{ max-width:1440px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px; }",
-      ".ssh-logo{ font:700 24px/1 'Libre Baskerville',serif;color:#1a1a1a;display:inline-flex;align-items:center;text-decoration:none; }",
-      ".ssh-logo b{ color:#8b4513; }",
-      ".ssh-logo .brand-logo-icon{ width:24px;height:28px;margin-right:8px;vertical-align:middle; }",
-      ".ssh-nav{ display:flex;align-items:center;gap:22px; }",
-      ".ssh-nav a{ font:800 15px/1 Lato,sans-serif;color:#333;text-decoration:none;transition:color .2s; }",
-      ".ssh-nav a:hover{ color:#8b4513; }",
-      ".ssh-right{ display:flex;align-items:center;gap:14px; }",
-      ".ssh-search{ display:flex;align-items:center;background:#f5f3f0;border-radius:20px;padding:6px 12px;border:1px solid #e2ddd7; }",
-      ".ssh-search input{ border:0;background:none;font:400 13px Lato,sans-serif;outline:none;width:110px;color:#333; }",
-      ".ssh-btn{ background:none;border:0;cursor:pointer;color:#222;display:flex;align-items:center;justify-content:center;position:relative;padding:4px; }",
-      ".ssh-btn:hover{ color:#8b4513; }",
-      ".ssh-badge{ position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;background:#8b4513;color:#fff;font:700 10px/16px Lato,sans-serif;border-radius:8px;text-align:center;padding:0 3px; }",
-      ".ssh-burger{ display:none; background:#fff; border:1.5px solid #e2d9cf; border-radius:50%; width:38px; height:38px; align-items:center; justify-content:center; cursor:pointer; padding:0; }",
-      ".ssh-burger[aria-expanded=\"true\"]{ background:#8b4513; border-color:#8b4513; }",
-      ".ssh-burger[aria-expanded=\"true\"] svg{ stroke:#fff; }",
-      /* phone / small tablet: the desktop link row becomes a drop-down panel */
-      "@media (max-width:991px){",
-      "  .ssh-search{ display:none; }",
-      "  .ssh-burger{ display:flex; }",
-      "  .ssh-nav{ display:none; position:absolute; top:100%; left:0; right:0; flex-direction:column; gap:0;",
-      "            background:#fff; padding:6px 20px 12px; border-top:1px solid rgba(139,69,19,.10);",
-      "            border-bottom:1px solid rgba(139,69,19,.16); box-shadow:0 16px 30px rgba(40,20,10,.14); }",
-      /* responsive.css already forces .ssh-nav/.ssh-search to display:none at
-         this breakpoint (with !important) — the open panel must out-rank it */
-      "  .stackly-sticky-header.is-open .ssh-nav{ display:flex !important; align-items: stretch !important; }",
-      "  .ssh-nav a{ padding:12px 4px; border-bottom:1px dashed #eee; font-size:15px; }",
-      "  .ssh-nav a:last-child{ border-bottom:0; }",
-      "}",
-      "}"
-    ].join("");
-    document.head.appendChild(st);
-
-    // Create sticky header element
-    var hdr = document.createElement("div");
-    hdr.className = "stackly-sticky-header";
-    /* brand mark: reuse the logo SVG that is already on the page instead of
-       hard-coding the path data a second time (the old inline reference to a
-       never-defined `path1D` threw and aborted the whole boot sequence) */
-    var markEl = document.querySelector(".logo .brand-logo-icon") ||
-                 document.querySelector(".brand-logo-icon");
-    var markHtml = markEl
-      ? markEl.outerHTML.replace(/\s(?:width|height)="[^"]*"/g, "")
-      : "";
-    hdr.innerHTML = [
-      '<div class="ssh-inner">',
-      '  <a class="ssh-logo" href="' + homeHref + '">',
-      '    ' + markHtml,
-      '    <b>S</b>TACKLY',
-      '  </a>',
-      '  <button type="button" class="ssh-burger stackly-sticky-burger" aria-label="Menu" aria-expanded="false">',
-      '    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#8b4513" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
-      '  </button>',
-      '  <nav class="ssh-nav">',
-      '    <a href="' + homeHref + '">Home</a>',
-      '    <a href="' + aboutHref + '">About</a>',
-      '    <a href="' + shopHref + '">Shop</a>',
-      '    <a href="' + prodHref + '">Product details</a>',
-      '    <a href="' + blogHref + '">Blog</a>',
-      '    <a href="' + contactHref + '">Contact</a>',
-      '  </nav>',
-      '  <div class="ssh-right">',
-      '    <form class="ssh-search" onsubmit="return false;">',
-      '      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.4-3.4"/></svg>',
-      '      <input type="text" placeholder="Search..." aria-label="Search" style="margin-left:6px;">',
-      '    </form>',
-      '    <button type="button" class="ssh-btn ssh-account" aria-label="Account" title="Account">',
-      '      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
-      '    </button>',
-      '    <button type="button" class="ssh-btn ssh-cart" aria-label="Cart" title="Cart">',
-      '      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 4h2.2l2.3 10.5h9.6L19.5 7H6.3"/><circle cx="9.5" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>',
-      '      <span class="ssh-badge" style="display:none;">0</span>',
-      '    </button>',
-      '  </div>',
-      '</div>'
-    ].join("");
-    document.body.appendChild(hdr);
-
-    // Event listeners for sticky header controls
-    hdr.querySelector(".ssh-account").addEventListener("click", function () { navigate(accountDest); });
-    hdr.querySelector(".ssh-cart").addEventListener("click", function () { navigate(cartHref); });
-
-    // mobile burger: drop-down panel with the same links as the desktop row
-    var sBurger = hdr.querySelector(".ssh-burger");
-    if (sBurger) {
-      var setMenu = function (open) {
-        hdr.classList.toggle("is-open", open);
-        sBurger.setAttribute("aria-expanded", open ? "true" : "false");
-      };
-      sBurger.addEventListener("click", function (e) {
-        e.stopPropagation();
-        setMenu(!hdr.classList.contains("is-open"));
-      });
-      Array.prototype.forEach.call(hdr.querySelectorAll(".ssh-nav a"), function (a) {
-        a.addEventListener("click", function () { setMenu(false); });
-      });
-      document.addEventListener("click", function (e) {
-        if (!hdr.contains(e.target)) setMenu(false);
-      });
-      window.addEventListener("resize", function () {
-        if (window.innerWidth > 991) setMenu(false);
-      });
+    function scaleFactor() {
+      var m = window.getComputedStyle(canvas).transform;
+      if (!m || m === "none") return 1;
+      var a = m.match(/matrix\(\s*([-\d.]+)/);
+      var s = a ? parseFloat(a[1]) : 1;
+      return (isFinite(s) && s > 0) ? s : 1;
     }
-    var sInput = hdr.querySelector(".ssh-search input");
-    if (sInput) {
-      sInput.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          var q = sInput.value.trim();
-          if (q) navigate(shopHref + "?q=" + encodeURIComponent(q));
+
+    function collect() {
+      var all = Array.prototype.slice.call(document.querySelectorAll(SELECTOR));
+      nodes = all.filter(function (el) {
+        return !all.some(function (o) { return o !== el && o.contains(el); });
+      });
+      /* these get their inline translate rewritten on EVERY frame while the
+         page scrolls; promoting them once keeps the browser from re-rastering
+         the whole scaled canvas each time (the cost of that shows up as a
+         stuttering / shaking header). Set once, never toggled — toggling
+         promotion at scroll 0 is itself a visible snap. */
+      nodes.forEach(function (el) { el.style.willChange = "transform"; });
+    }
+
+    /* The strip behind the header keeps page content from showing through it
+       while scrolling. Its colour follows the header's own text colour:
+       pages such as Home/Shop draw white nav links over a photo, so a white
+       bar there would swallow them — those get the brand brown instead. */
+    function theme() {
+      var probe = document.querySelector(".nav__link:not(.is-active)") ||
+                  document.querySelector(".nav__link");
+      var light = false;
+      if (probe) light = window.getComputedStyle(probe).color === "rgb(255, 255, 255)";
+      return light
+        ? { fill: "#8b4513", edge: "rgba(255,255,255,.22)" }
+        : { fill: "#ffffff", edge: "rgba(139,69,19,.10)" };
+    }
+
+    function ensureBackdrop() {
+      if (bg && bg.parentNode) return;
+      var t = theme();
+      bg = document.createElement("div");
+      bg.className = "stackly-header-bg";
+      bg.setAttribute("aria-hidden", "true");
+      bg.style.cssText = "position:absolute;left:0;top:0;width:100%;height:" +
+        headerH + "px;background:" + t.fill + ";opacity:0;z-index:15;" +
+        "pointer-events:none;border-bottom:1px solid " + t.edge + ";";
+      bg.style.setProperty("--stackly-header-h", headerH + "px");
+      canvas.insertBefore(bg, canvas.firstChild);
+    }
+
+    function raise(on) {
+      if (on === raised) return;
+      raised = on;
+      nodes.forEach(function (el) {
+        if (on) {
+          var z = window.getComputedStyle(el).zIndex;
+          if (z === "auto" || (parseInt(z, 10) || 0) < 20) el.style.zIndex = "20";
+        } else {
+          el.style.zIndex = "";
         }
       });
     }
 
-    // Update sticky cart badge
-    function updateStickyCartBadge() {
-      var count = cartCount();
-      var b = hdr.querySelector(".ssh-badge");
-      if (b) {
-        b.textContent = count > 99 ? "99+" : String(count);
-        b.style.display = count > 0 ? "block" : "none";
+    function raise(on) {
+      if (on === raised) return;
+      raised = on;
+      nodes.forEach(function (el) {
+        if (on) {
+          var z = window.getComputedStyle(el).zIndex;
+          if (z === "auto" || (parseInt(z, 10) || 0) < 20) el.style.zIndex = "20";
+        } else {
+          el.style.zIndex = "";
+        }
+      });
+    }
+
+    function measure() {
+      var s = scale = scaleFactor();
+      var cr = canvas.getBoundingClientRect();
+      nodes.forEach(function (el) {
+        el.style.translate = "0 0px";
+        el.style.scale = "";
+      });
+      if (bg) bg.style.translate = "0 0px";
+      function scan() {
+        var bottom = 0, top = -1;
+        Array.prototype.forEach.call(
+          document.querySelectorAll(SELECTOR + ", .nav__link"),
+          function (el) {
+            var r = el.getBoundingClientRect();
+            if (r.height <= 0) return;
+            bottom = Math.max(bottom, r.bottom - cr.top);
+            if (top < 0 || r.top - cr.top < top) top = r.top - cr.top;
+          }
+        );
+        return { bottom: bottom, top: top };
+      }
+      var rest = scan();                    /* design geometry, untouched */
+      headH0 = (rest.bottom > 0 ? rest.bottom / s : 120) + 8;
+      /* how far the whole pinned cluster rides up so it hugs the top of the
+         shorter bar (no-op where it already starts at the top) */
+      shiftFull = rest.top > 0 ? -Math.max(0, rest.top / s - PAD) : 0;
+
+      /* the compacted geometry is measured once and interpolated while
+         scrolling — no layout read on every frame */
+      nodes.forEach(function (el) {
+        el.style.translate = "0 " + shiftFull + "px";
+        el.style.scale = String(SHRINK);
+      });
+      var tight = scan();
+      headH1 = tight.bottom > 0 ? tight.bottom / s + 8 : headH0;
+
+      headerH = headH0;
+      nodes.forEach(function (el) { el.style.translate = "0 0px"; el.style.scale = ""; });
+      window.__slyScaleDirty = false;
+      if (bg) bg.style.setProperty("--stackly-header-h", headerH + "px");
+    }
+
+    var lastY = -1;
+    function apply(y) {
+      if (window.__slyScaleDirty) measure();   /* stage was re-fitted */
+      if (y === undefined) y = window.scrollY || document.documentElement.scrollTop || 0;
+      lastY = y;
+      var off = y / scale;                  /* cached: no getComputedStyle per
+                                               frame (it forces a style
+                                               recalc and adds scroll jank) */
+      var k = y > 0 ? Math.min(1, y / CONDENSE) : 0;   /* compact progress */
+      var shift = shiftFull * k;
+      var ks = 1 - (1 - SHRINK) * k;
+      raise(y > 0);
+      nodes.forEach(function (el) {
+        el.style.translate = "0 " + (off + shift) + "px";
+        el.style.scale = ks > 0.999 ? "" : String(ks);
+      });
+      if (bg) {
+        var h = headH0 + (headH1 - headH0) * k;
+        headerH = h;
+        bg.style.translate = "0 " + off + "px";
+        bg.style.height = h + "px";
+        bg.style.setProperty("--stackly-header-h", h + "px");
+        bg.style.opacity = String(Math.min(1, y / 60));
       }
     }
-    updateStickyCartBadge();
-    window.addEventListener("storage", updateStickyCartBadge);
+    /* The pin offset is refreshed by a rAF loop, not only by scroll events:
+       a scroll event can be delivered AFTER the pixels for that frame have
+       already moved, and that one-frame gap is exactly the "header lags and
+       shakes while scrolling" bug. A rAF callback runs once the frame's scroll
+       position is committed and before that frame is painted, so the header
+       can never be observed in the wrong place. The scroll listener is kept as
+       an early wake-up; sync() writes nothing when the offset did not move. */
+    function sync() {
+      var y = window.scrollY || document.documentElement.scrollTop || 0;
+      if (y !== lastY) apply(y);
+    }
+    function frame() {
+      sync();
+      requestAnimationFrame(frame);
+    }
 
-    // Scroll listener
-    var ticking = false;
-    window.addEventListener("scroll", function () {
-      if (!ticking) {
-        requestAnimationFrame(function () {
-          var y = window.scrollY || document.documentElement.scrollTop || 0;
-          if (y > 140) {
-            hdr.classList.add("is-visible");
-          } else {
-            hdr.classList.remove("is-visible");
-          }
-          ticking = false;
-        });
-        ticking = true;
-      }
-    }, { passive: true });
+    collect();
+    if (!nodes.length) return;
+    ensureBackdrop();
+    measure();
+    apply();
+
+    window.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", function () { measure(); apply(); });
+    /* rAF does not run while the page is hidden, so the loop above is frozen
+       with it — re-pin the moment the page becomes visible again (the layout
+       may also have changed while it was hidden) */
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) { measure(); apply(); }
+    });
+    /* fitStage re-scales the canvas (preloader unlock, scrollbar appearing,
+       font swap) — the pin offset is derived from that scale, so refresh */
+    window.addEventListener("stackly:refit", function () { measure(); apply(); });
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { measure(); apply(); });
+    }
+    /* late-loading images/fonts can still change the header's height */
+    setTimeout(function () { measure(); apply(); }, 500);
+    frame();
   }
 
   /* Safety net for the one layout change that does not reliably fire a window

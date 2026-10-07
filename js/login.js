@@ -3,8 +3,10 @@
    - email / password fields become typeable (design placeholder shows until focus)
    - eye toggle shows / hides the password
    - password hint icons light up green as each rule passes
-   - user / Admin role boxes select
-   - Login validates and routes to the role-based dashboard; "Register here" -> sign up
+   - role boxes select (Admin is not pickable here — see FB-002)
+   - Login verifies email + password against the registered account
+     (STACKLY.signIn) and routes to the session's dashboard;
+     "Register here" -> sign up
    - "Forget Password ?" -> on-page toast (no reset flow exists yet)
 ============================================================================= */
 (function () {
@@ -29,11 +31,18 @@
       return best;
     }
 
-    /* email = top field, password = .lg__field--pw, the two at y~696 = roles */
+    /* email = top field, password = .lg__field--pw, the two boxes under
+       "Select role" are recognised by their own placeholder text (the
+       placeholder is a SIBLING span, so it is paired geometrically with
+       phFor). Reading the text instead of an offset keeps the boxes — and
+       the email field — classified correctly when the mobile layout
+       restacks the design canvas (offsets change there). */
     var emailF = null, pwF = null, roles = [];
     fields.forEach(function (f) {
+      var ph = phFor(f);
+      var t = ph ? ph.textContent.trim().toLowerCase() : "";
       if (f.classList.contains("lg__field--pw")) pwF = f;
-      else if (f.offsetTop > 650) roles.push(f);
+      else if (t === "user" || t === "admin") roles.push(f);
       else if (!emailF || f.offsetTop < emailF.offsetTop) emailF = f;
     });
 
@@ -74,54 +83,56 @@
       pwInp.addEventListener("keyup", paintHints);
     }
 
-    /* ---------- role selection ---------- */
+    /* ---------- role selection ----------
+       QA FB-002: the login form must not hand out administrator access.
+       The Admin box can no longer be picked here and, even if it could,
+       submit() takes the role from the verified account (STACKLY.signIn).
+       The selected state is painted with the box's own inset stroke as well
+       as the border colour: the responsive sheet pins border/background with
+       !important, so border-colour alone would show nothing when picked. */
     var roleSelected = null;
     roles.forEach(function (f) {
       var cs = getComputedStyle(f);
-      var baseBorder = cs.borderColor, baseBg = cs.backgroundColor;
+      var baseBorder = cs.borderColor, baseBg = cs.backgroundColor, baseShadow = cs.boxShadow;
+      var rPh = phFor(f);
+      var isAdminBox = !!(rPh && rPh.textContent.trim().toLowerCase() === "admin");
       f.style.cursor = "pointer";
       f.addEventListener("click", function () {
+        if (isAdminBox) {
+          S.toast("Administrator access can only be granted to an authorized admin account");
+          return;
+        }
         if (roleSelected && roleSelected.f !== f) {
           roleSelected.f.style.borderColor = roleSelected.baseBorder;
           roleSelected.f.style.backgroundColor = roleSelected.baseBg;
+          roleSelected.f.style.boxShadow = roleSelected.baseShadow;
         }
         var on = roleSelected && roleSelected.f === f;
         if (on) {
           f.style.borderColor = baseBorder;
           f.style.backgroundColor = baseBg;
+          f.style.boxShadow = baseShadow;
           roleSelected = null;
         } else {
           f.style.borderColor = "#8b4513";
           f.style.backgroundColor = "#f7efe6";
-          roleSelected = { f: f, baseBorder: baseBorder, baseBg: baseBg };
+          f.style.boxShadow = "inset 0 0 0 1px #8b4513";
+          roleSelected = { f: f, baseBorder: baseBorder, baseBg: baseBg, baseShadow: baseShadow };
         }
       });
     });
 
-    /* ---------- submit ---------- */
+    /* ---------- submit ----------
+       QA FB-001: the password is checked against the registered account,
+       not against the password rules shown on the page. */
     function submit() {
       var email = emailInp ? emailInp.value.trim() : "";
       var pw = pwInp ? pwInp.value : "";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { S.toast("Please enter a valid email address"); return; }
-      var fail = -1;
-      rules.forEach(function (r, i) { if (fail < 0 && !r(pw)) fail = i; });
-      if (fail >= 0) {
-        var msgs = ["Minimum 8 characters", "Must contain at least 1 number",
-          "Must contain 1 capital and 1 small case", "Must contain at least 1 symbol"];
-        S.toast("Password: " + msgs[fail]);
-        return;
-      }
-      /* signed in — open the role-based dashboard (user / Admin) */
-      try { localStorage.setItem("stacklyUser", email); } catch (e) {}
-      var role = "user";
-      if (roleSelected) {
-        var rPh = roleSelected.f.querySelector(".lg__ph");
-        var rTxt = rPh ? rPh.textContent.trim().toLowerCase() : "";
-        if (rTxt === "admin") role = "admin";
-      }
+      var res = S.signIn(email, pw);
+      if (!res.ok) { S.toast(res.msg); return; }
       S.toast("Welcome back!");
-      try { localStorage.setItem("stacklyRole", role); } catch (e) {}
-      setTimeout(function () { S.go("dashboard.html?role=" + role); }, 700);
+      setTimeout(function () { S.go("dashboard.html"); }, 700);
     }
 
     var btn = document.querySelector(".lg__btn");

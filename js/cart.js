@@ -206,13 +206,17 @@
       clearClones();
       if (emptyBox) emptyBox.style.display = items.length ? "none" : "";
       if (!items.length) { applyLayout(0); totals(); return; }
-
+      var siTitle = canvas.querySelector(".ct__si-title");
       items.forEach(function (item, i) {
         var top0 = ROW_TOP + i * ROW_PITCH;
         var rowEls = template.map(function (src, k) {
           var el = src.cloneNode(true);
           el.style.top = (srcTops[k] - ROW_TOP + top0) + "px";
-          canvas.appendChild(el);
+          if (siTitle && siTitle.parentNode === canvas) {
+            canvas.insertBefore(el, siTitle);
+          } else {
+            canvas.appendChild(el);
+          }
           clones.push(el);
           return el;
         });

@@ -1,11 +1,13 @@
 /* =============================================================================
    STACKLY — role-based dashboard
-   - ?role=user|Admin decides the sidebar menu and every section's content
+   - the role comes from the signed-in session (STACKLY.session), never from
+     the query string: ?role=admin is user-editable and used to render the
+     admin dashboard (QA FB-003). Any leftover role= in the URL is dropped.
    - left sidebar menu, right side the section view (same site theme)
    - My Cart reads the live STACKLY cart store; Wishlist can move items to it
-   - deep links: dashboard.html?role=user#wishlist opens Wishlist directly
+   - deep links: dashboard.html#wishlist opens Wishlist directly
    - dead buttons (Add Product) stay on the page with a toast
-   - logout -> login.html; logo -> home
+   - logout -> index.html; logo -> home
 ============================================================================= */
 (function () {
   "use strict";
@@ -17,8 +19,16 @@
 
   /* ---------------------------------------------------------------- role */
   function readRole() {
-    var m = /[?&]role=([A-Za-z]+)/.exec(location.search);
-    return m && m[1].toLowerCase() === "admin" ? "admin" : "user";
+    /* strip a role parameter if one was typed in — it has no effect and it
+       must not stay in the address bar looking like it does */
+    try {
+      if (/[?&]role=/.test(location.search)) {
+        var q = location.search.replace(/[?&]role=[^&]*/g, "").replace(/^&/, "?");
+        history.replaceState(null, "", location.pathname + (q === "?" ? "" : q) + location.hash);
+      }
+    } catch (e) {}
+    var s = S.session ? S.session() : null;
+    return s && s.role === "admin" ? "admin" : "user";
   }
   var ROLE = readRole();
 

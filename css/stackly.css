@@ -1,4 +1,4 @@
-/* =============================================================================
+﻿/* =============================================================================
    STACKLY — the entire site's stylesheet (one file, one <link> per page)
    -----------------------------------------------------------------------------
    GENERATED FILE — rebuild with:  node <tools>/migrate.js --apply
@@ -6932,3 +6932,418 @@ img { height: auto; }
 .s1072{width:31px;height:31px}  /* <a class="soc"> */
 .s1073{width:28px;height:28px}  /* <a class="soc"> */
 
+
+
+/* IMPORTANT: this patch has to live INSIDE @layer stackly. The .s### design
+   coordinates and the responsive blocks are ordered by layer, and for
+   !important declarations a layered rule always beats an unlayered one — a
+   patch written outside the layer silently loses to the older !important
+   rules inside it. This re-opens the same named layer, so its rules append
+   after every earlier "stackly" rule and finally win. */
+@layer stackly {
+
+/* =============================================================================
+   BUG-FIX PATCH — fixes applied without touching the existing rules above
+   1. Product Details: thumbnail strip visible on desktop (coord override)
+   2. Product Details: wishlist shows all 3 cards on mobile
+   3. Cart: mobile quantity stepper lays out horizontally
+   4. Product Details: all 3 wishlist cards display correctly on all screens
+   Smooth page navigation: already handled by html{scroll-behavior:smooth}
+   and the preloader transition in script.js.
+============================================================================= */
+
+/* ── 1. PRODUCT DETAILS — thumbnail strip (desktop ≥ 992px) ────────────────
+   The individual coord classes (.s524–.s528) pin each thumb at absolute
+   left/top. Inside the .pd-thumbs flex container those coords must be
+   nulled so the flex algorithm takes over.                                  */
+@media (min-width: 992px) {
+  :where(html.pg-product-details) .pd-thumbs .pd-thumb {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    flex: 0 0 80px !important;
+    width: 80px !important;
+    height: 121px !important;
+  }
+}
+
+
+/* ── 2b. PRODUCT DETAILS — wishlist grid (desktop >= 992px) ─────────────────
+   Ensure all 3 cards in the wishlist grid are reliably displayed side-by-side
+   without coordinate clipping or overlapping.                                */
+@media (min-width: 992px) {
+  .canvas > .pd-wishlist-grid,
+  .pd-wishlist-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    width: 1342px !important;
+    height: 423px !important;
+  }
+  .pd-wishlist-grid .pd-card {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    flex: 0 0 410px !important;
+    width: 410px !important;
+    height: 423px !important;
+    display: block !important;
+  }
+}
+
+/* ── 3. CART — mobile quantity stepper & delete controls ───────────────────
+   The .ct__step children have absolute coords (left/top) inside .ct__qty.
+   On mobile the qty container is shifted via margin-top/padding-left tricks.
+   Fix: make the qty container a flex row, reset children to static flow,
+   and make .ct__trash and .ct__del display inline-flex next to each other
+   directly below the quantity stepper so user can increase/decrease and delete. */
+@media (max-width: 991px) {
+  .canvas > .ct__qty {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0 !important;
+    width: 120px !important;
+    height: 40px !important;
+    padding: 0 8px !important;
+    box-shadow: inset 0 0 0 1px #dcd6ce !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+    margin-top: 6px !important;
+    margin-left: 108px !important;
+    align-self: flex-start !important;
+  }
+  .canvas > .ct__qty .ct__step {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 24px !important;
+    height: 24px !important;
+    flex: 0 0 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+  }
+  .canvas > .ct__qty .ct__num {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    flex: 1 !important;
+    text-align: center !important;
+    font-size: 15px !important;
+    line-height: 1 !important;
+    width: auto !important;
+  }
+  /* Keep item name above qty, not beside it — fix stacking order */
+  .canvas > .ct__name {
+    font-size: 14px !important;
+    line-height: 20px !important;
+    height: auto !important;
+    white-space: normal !important;
+    margin-top: -128px !important;
+    padding-left: 108px !important;
+    min-height: 38px !important;
+    align-self: flex-start !important;
+  }
+  .canvas > .ct__price1,
+  .canvas > .ct__price2,
+  .canvas > .ct__price3 {
+    height: auto !important;
+    margin-top: -6px !important;
+    padding-left: 108px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    align-self: flex-start !important;
+  }
+  .canvas > .ct__badge {
+    margin: -6px 0 0 4px !important;
+    font-size: 10px !important;
+    align-self: flex-start !important;
+  }
+  /* Delete controls: trash icon + "Delete" text side by side below qty */
+  .canvas > .ct__trash {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 24px !important;
+    height: 24px !important;
+    margin-top: 8px !important;
+    margin-left: 108px !important;
+    align-self: flex-start !important;
+    cursor: pointer !important;
+  }
+  .canvas > .ct__trash svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
+  .canvas > .ct__del {
+    display: inline-flex !important;
+    align-items: center !important;
+    font-size: 14px !important;
+    line-height: 24px !important;
+    color: #929292 !important;
+    height: 24px !important;
+    margin-top: -24px !important;
+    margin-left: 136px !important;
+    padding-left: 0 !important;
+    align-self: flex-start !important;
+    cursor: pointer !important;
+    text-decoration: underline !important;
+  }
+  .canvas > .ct__delline {
+    display: none !important;
+  }
+  .canvas > .ct__notes {
+    margin-top: 12px !important;
+    font-size: 13px !important;
+    align-self: flex-start !important;
+  }
+  .canvas > .ct__notebox {
+    margin-top: 6px !important;
+    height: 56px !important;
+    align-self: flex-start !important;
+  }
+  .canvas > .ct__notetext {
+    margin-top: -46px !important;
+    padding-left: 12px !important;
+    font-size: 13px !important;
+    align-self: flex-start !important;
+  }
+}
+}
+
+/* ── 4. SMOOTH PAGE NAVIGATION & STICKY HEADER ACTIVE LINKS ─────────────────
+   Smooth hover feel for nav links and active state highlight for sticky nav. */
+.nav__link {
+  transition: color .25s ease, opacity .25s ease !important;
+}
+.nav__link:hover {
+  opacity: .8 !important;
+}
+.ssh-nav a.is-active,
+.ssh-nav a.is-current {
+  color: #8b4513 !important;
+  font-weight: 800 !important;
+}
+
+
+/* =============================================================================
+   FINAL FIX LAYER — appended last-minute corrections.
+   It re-opens the SAME named layer ("stackly"), so every rule below sorts
+   after every earlier layer rule and wins; the !important flags also beat the
+   unlayered .s### design-coordinate rules.
+   ========================================================================== */
+@layer stackly {
+
+  /* ---------- CART — mobile item rows (<= 991px) --------------------------
+     The canvas is a wrapping flex column of full-width lines with a 12px gap,
+     so each line sits at:  y = flow + margin-top
+     and the next line starts at: flow + max(0, height + margin-top) + 12.
+     Every margin below is solved against that model so that image, name,
+     price, stepper, delete and notes land where the design wants them.       */
+  @media (max-width: 991px) {
+    .canvas > .ct__img {
+      flex: 0 0 96px !important;
+      width: 96px !important;
+      height: 128px !important;
+      margin-top: 0 !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__name {
+      flex: 0 0 100% !important;
+      width: 100% !important;
+      height: 20px !important;
+      margin-top: -132px !important;
+      margin-left: 0 !important;
+      min-height: 20px !important;
+      padding-left: 108px !important;
+      font-size: 15px !important;
+      line-height: 20px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__price1 {
+      flex: 0 0 100% !important;
+      width: 100% !important;
+      height: 20px !important;
+      margin-top: -116px !important;
+      margin-left: 0 !important;
+      padding-left: 108px !important;
+      font-size: 15px !important;
+      line-height: 20px !important;
+      font-weight: 700 !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    /* compact stepper that sits beside the photo instead of crossing it */
+    .canvas > .ct__qty {
+      display: flex !important;
+      flex: 0 0 auto !important;
+      width: 156px !important;
+      height: 40px !important;
+      margin-top: -100px !important;
+      margin-left: 108px !important;
+      padding: 0 8px !important;
+      box-sizing: border-box !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__qty .ct__step { flex: 0 0 24px !important; }
+    .canvas > .ct__qty .ct__num { flex: 1 1 auto !important; width: auto !important; }
+    /* trash icon and "Delete" share one line, aligned with the text column */
+    .canvas > .ct__trash {
+      display: flex !important;
+      flex: 0 0 254px !important;
+      width: 254px !important;
+      height: 24px !important;
+      margin-top: -38px !important;
+      margin-left: 108px !important;
+      padding-left: 0 !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__del {
+      display: flex !important;
+      flex: 0 0 218px !important;
+      width: 218px !important;
+      height: 24px !important;
+      margin-top: -50px !important;
+      margin-left: 144px !important;
+      padding-left: 0 !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__notes {
+      flex: 0 0 100% !important;
+      width: 100% !important;
+      height: auto !important;
+      margin-top: -26px !important;
+      margin-left: 0 !important;
+      padding-left: 0 !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__notebox {
+      flex: 0 0 100% !important;
+      width: 100% !important;
+      height: 56px !important;
+      margin-top: -10px !important;
+      margin-left: 0 !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+    .canvas > .ct__notetext {
+      flex: 0 0 100% !important;
+      width: 100% !important;
+      height: 20px !important;
+      margin-top: -52px !important;
+      margin-left: 0 !important;
+      padding-left: 12px !important;
+      align-self: flex-start !important;
+      left: auto !important;
+      top: auto !important;
+    }
+
+    /* ---------- CART — empty state is far too heavy on a phone ------------
+       Desktop keeps its 44px Playfair heading / 20px copy / 88px button.     */
+    .canvas > .ct-empty {
+      gap: 14px !important;
+      padding: 22px 16px !important;
+      height: auto !important;
+      left: auto !important;
+      top: auto !important;
+      width: auto !important;
+    }
+    .canvas .ct-empty svg { width: 52px !important; height: 52px !important; }
+    .canvas .ct-empty h3 { font-size: 26px !important; line-height: 1.22 !important; }
+    .canvas .ct-empty p { font-size: 14px !important; line-height: 22px !important; }
+    .canvas .ct-empty__btn {
+      align-self: center !important;
+      width: auto !important;
+      max-width: 100% !important;
+      margin-top: 2px !important;
+      padding: 13px 26px !important;
+      font-size: 14px !important;
+      line-height: 20px !important;
+      letter-spacing: 1.4px !important;
+      white-space: nowrap !important;
+    }
+  }
+
+  /* ---------- PRODUCT DETAILS — desktop action row ------------------------
+     .s544 pins "Add To Cart" at left:198px. On desktop .pd-actions is a flex
+     row (158px stepper + 40px gap) where the button already starts at 198px,
+     so the coordinate doubles up as a relative offset and pushes the 521px
+     button to x=1098 — 179px past the 1440px stage, where .stage{overflow:
+     hidden} clips it. Drop the coordinate and the flex row lands exactly on
+     the design (702 + 158 + 40 + 521 = 1421). */
+  @media (min-width: 992px) {
+    .pd-actions .pd-qty,
+    .pd-actions .pd-btn {
+      left: auto !important;
+      top: auto !important;
+    }
+  }
+
+  /* ---------- pinned header backdrop (injected by script.js) --------------
+     Below 992px the canvas rewrites every direct child to
+     `position:static; height:auto; flex:0 0 100%` (see
+     `.canvas > :not(.stackly-inp)`), which would drop the strip into the
+     page flow, squeeze it to its 1px bottom border and shove the content
+     down. Same specificity, later in the layer — so this wins. The height
+     itself is measured by script.js and passed through the custom property
+     so the JS-set inline height (which loses to `height:auto !important`)
+     is no longer needed. */
+  .canvas > .stackly-header-bg {
+    position: absolute !important;
+    left: 0 !important;
+    right: auto !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: var(--stackly-header-h, 130px) !important;
+    flex: 0 0 auto !important;
+    z-index: 15 !important;
+    transform: none !important;
+  }
+}
+
+/* =============================================================================
+   LOGO — always fully black
+   The mark is two paths (brown + near-black) and the wordmark carries a brown
+   "S": against the brown sticky bar those parts disappeared, so the logo read
+   as "TACKLY" with a broken mark. Force the whole header logo — mark, "S" and
+   wordmark — to black on every page, top of page and scrolled alike.
+   Same layer as the design rules above, later in source, so it wins without
+   touching a single design coordinate (geometry/pixels of the layout are
+   unchanged; only the logo's paint colour is).
+============================================================================= */
+@layer stackly {
+  .canvas .logo { color: #000000 !important; }
+  .canvas .logo b { color: #000000 !important; }
+  .canvas .logo .brand-logo-icon path { fill: #000000 !important; }
+}
